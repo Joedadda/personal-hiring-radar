@@ -3,9 +3,11 @@ import { discoverCompany, inspectCareerDocument, probeKnownFeeds } from "./disco
 import { buildDigest, buildRoleMail, type DigestRole } from "./digest";
 import { mailConfigured, sendDigestEmail } from "./email";
 import { FetchError, fetchText, normalizeWebsite } from "./http";
+import { absorbLinkedIn, discoverLinkedInPosts } from "./linkedin";
 import { fetchJobs, type FetchedJob } from "./jobs";
 import { matchJob } from "./match";
 import { hiringSignals } from "./signals";
+import { createSearchProvider } from "./search/provider";
 import { daysAgo, excerpt, hostOf } from "./text";
 import type { Company, Database, DigestRecord, JobRecord, Level, Profile, RoleView, StateView } from "./types";
 import { LEVELS } from "./types";
@@ -34,6 +36,7 @@ function applyJobs(db: Database, company: Company, fetched: FetchedJob[]) {
         lastSeenAt: now,
         seenCount: 1,
         active: true,
+        origin: "careers",
       });
     } else {
       existing.title = job.title;
@@ -50,7 +53,7 @@ function applyJobs(db: Database, company: Company, fetched: FetchedJob[]) {
     }
   }
   for (const job of db.jobs) {
-    if (job.companyId === company.id && !seen.has(job.id)) job.active = false;
+    if (job.companyId === company.id && !seen.has(job.id) && job.origin !== "linkedin") job.active = false;
   }
   company.scanCount += 1;
   company.lastScannedAt = now;
@@ -127,6 +130,47 @@ async function refreshCompany(company: Company): Promise<{ company: Company; job
   return { company: next, jobs: result.jobs, failed: false };
 }
 
+function sourceNote(job: JobRecord): string {
+  if (job.origin === "both") return job.authorName ? `Careers page and LinkedIn. Posted by ${job.authorName}.` : "Careers page and LinkedIn";
+  if (job.origin === "linkedin") {
+    return job.authorName ? `LinkedIn post, no careers listing. Posted by ${job.authorName}.` : "LinkedIn post, no careers listing";
+  }
+  return "Careers page";
+}
+
+async function linkedInFor(company: Company) {
+  const profile = activeProfile(readDb());
+  if (!profile) return { posts: [], status: "ok" as const };
+  try {
+    return await discoverLinkedInPosts({
+      company: company.name,
+      domain: profile.domain,
+      preferredRoles: profile.preferredRoles,
+      search: createSearchProvider(),
+    });
+  } catch {
+    return { posts: [], status: "failed" as const };
+  }
+}
+
+function finishCompany(
+  db: Database,
+  company: Company,
+  jobs: FetchedJob[],
+  failed: boolean,
+  linked: { posts: Parameters<typeof absorbLinkedIn>[2]; status: "ok" | "off" | "failed" }
+) {
+  if (!failed) applyJobs(db, company, jobs);
+  else if (linked.status !== "off") {
+    company.scanCount += 1;
+    company.lastScannedAt = new Date().toISOString();
+  }
+  absorbLinkedIn(db, company.id, linked.posts, new Date().toISOString());
+  if (linked.status === "off" && !company.note.includes("LinkedIn search is off")) {
+    company.note = `${company.note} LinkedIn search is off.`.trim();
+  }
+}
+
 function candidate(job: JobRecord, company: Company, relevant: boolean): boolean {
   if (!job.active || !relevant) return false;
   if (company.scanCount <= 1) {
@@ -166,6 +210,7 @@ function rolesFor(db: Database, profile: Profile): RoleView[] {
         excerpt: excerpt(job.descriptionText, 240),
         match,
         signals: hiringSignals(job, company, db.jobs.filter((item) => item.companyId === company.id)),
+        sourceNote: sourceNote(job),
         freshness,
         inDigest: false,
       });
@@ -201,6 +246,7 @@ export function buildState(db: Database): StateView {
     detectedLevel: role.match.detectedLevel,
     reasons: role.match.reasons,
     signals: role.signals,
+    sourceNote: role.sourceNote,
   }));
 
   const built = profile
@@ -261,6 +307,7 @@ export async function removeProfile(id: string): Promise<StateView> {
     db.profiles = db.profiles.filter((profile) => profile.id !== id);
     db.companies = db.companies.filter((company) => company.profileId !== id);
     db.jobs = db.jobs.filter((job) => !companyIds.has(job.companyId));
+    db.linkedinSignals = db.linkedinSignals.filter((signal) => !companyIds.has(signal.companyId));
     db.digests = db.digests.filter((digest) => digest.profileId !== id);
     if (db.activeProfileId === id) db.activeProfileId = db.profiles[0]?.id || null;
   });
@@ -351,13 +398,14 @@ export async function addCompany(rawUrl: string): Promise<StateView> {
     createdAt: new Date().toISOString(),
   };
   const refreshed = await refreshCompany(draft);
+  const linked = await linkedInFor(refreshed.company);
   await updateDb((db) => {
     const owner = activeProfile(db);
     if (!owner) return;
     refreshed.company.profileId = owner.id;
     if (companiesFor(db, owner.id).some((company) => hostOf(company.website) === hostOf(refreshed.company.website))) return;
     db.companies.push(refreshed.company);
-    if (!refreshed.failed) applyJobs(db, refreshed.company, refreshed.jobs);
+    finishCompany(db, refreshed.company, refreshed.jobs, refreshed.failed, linked);
   });
   return getState();
 }
@@ -366,6 +414,7 @@ export async function removeCompany(id: string): Promise<StateView> {
   await updateDb((db) => {
     db.companies = db.companies.filter((company) => company.id !== id);
     db.jobs = db.jobs.filter((job) => job.companyId !== id);
+    db.linkedinSignals = db.linkedinSignals.filter((signal) => signal.companyId !== id);
   });
   return getState();
 }
@@ -374,11 +423,12 @@ export async function scanCompany(id: string): Promise<StateView> {
   const current = readDb().companies.find((company) => company.id === id);
   if (!current) throw new FetchError("That company is not on the desk.");
   const refreshed = await refreshCompany(current);
+  const linked = await linkedInFor(refreshed.company);
   await updateDb((db) => {
     const index = db.companies.findIndex((company) => company.id === id);
     if (index === -1) return;
     db.companies[index] = refreshed.company;
-    if (!refreshed.failed) applyJobs(db, db.companies[index], refreshed.jobs);
+    finishCompany(db, db.companies[index], refreshed.jobs, refreshed.failed, linked);
   });
   return getState();
 }
@@ -389,11 +439,12 @@ export async function scanAll(): Promise<StateView> {
     const current = readDb().companies.find((company) => company.id === id);
     if (!current) continue;
     const refreshed = await refreshCompany(current);
+    const linked = await linkedInFor(refreshed.company);
     await updateDb((db) => {
       const index = db.companies.findIndex((company) => company.id === id);
       if (index === -1) return;
       db.companies[index] = refreshed.company;
-      if (!refreshed.failed) applyJobs(db, db.companies[index], refreshed.jobs);
+      finishCompany(db, db.companies[index], refreshed.jobs, refreshed.failed, linked);
     });
   }
   return getState();
@@ -420,6 +471,8 @@ export async function emailApplicableRoles(appUrl: string): Promise<{
       companyName: role.companyName,
       location: role.location,
       detectedLevel: role.match.detectedLevel,
+      sourceNote: role.sourceNote,
+      url: role.url,
     })),
   });
   const result = await sendDigestEmail({ to: state.profile.email, ...mail });
@@ -454,6 +507,8 @@ export async function runDailyCheck(appUrl: string, today: string): Promise<void
         companyName: role.companyName,
         location: role.location,
         detectedLevel: role.match.detectedLevel,
+        sourceNote: role.sourceNote,
+        url: role.url,
       })),
     });
     const result = await sendDigestEmail({ to: profile.email, ...mail });
