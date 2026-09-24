@@ -3,6 +3,6 @@ export async function register() {
   const globalKey = globalThis as typeof globalThis & { __radarSchedule?: boolean };
   if (globalKey.__radarSchedule) return;
   globalKey.__radarSchedule = true;
-  const { startDailyCheck } = await import("./lib/schedule");
-  startDailyCheck();
+  const href = `file:///${process.cwd().replace(/\\/g, "/")}/instrumentation.node.mjs`;
+  await import(/* webpackIgnore: true */ href);
 }

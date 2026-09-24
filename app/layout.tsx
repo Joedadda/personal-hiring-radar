@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { Familjen_Grotesk, Fraunces } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
+import { cn } from "@/lib/utils";
 
-const sans = Familjen_Grotesk({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
-const display = Fraunces({ subsets: ["latin"], variable: "--font-display", display: "swap" });
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
 export const metadata: Metadata = {
   title: "Personal Hiring Radar",
@@ -12,12 +12,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={cn("font-sans", geist.variable)}>
       <head>
-        <meta name="theme-color" content="#e7dcc6" />
+        <meta name="theme-color" content="#ffffff" />
       </head>
-      <body className={`${sans.variable} ${display.variable}`}>
-        <a className="skip" href="#desk">Skip to the desk</a>
+      <body>
+        <a
+          className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground"
+          href="#desk"
+        >
+          Skip to the desk
+        </a>
         {children}
       </body>
     </html>

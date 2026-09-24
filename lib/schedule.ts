@@ -21,18 +21,22 @@ export function istParts(now = new Date()): { today: string; hour: number } {
 
 let running = false;
 
+export async function runDailyTick(appUrl?: string) {
+  const { today, hour } = istParts();
+  if (hour < 16 || running) return;
+  running = true;
+  try {
+    await runDailyCheck(appUrl || deskUrl(), today);
+  } finally {
+    running = false;
+  }
+}
+
 export function startDailyCheck() {
   const tick = () => {
-    const { today, hour } = istParts();
-    if (hour < 16 || running) return;
-    running = true;
-    void runDailyCheck(deskUrl(), today)
-      .catch((error) => {
-        console.error(error);
-      })
-      .finally(() => {
-        running = false;
-      });
+    void runDailyTick().catch((error) => {
+      console.error(error);
+    });
   };
   setInterval(tick, 60_000);
   tick();

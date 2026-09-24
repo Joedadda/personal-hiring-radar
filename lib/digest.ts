@@ -62,7 +62,7 @@ export function buildDigest(input: {
       const why = role.reasons[0] || "";
       const signal = role.signals.filter((item) => item.length < 140)[0] || "";
       return `<li style="margin:0 0 18px">
-        <div style="font-family:Georgia,serif;font-size:18px">${escapeHtml(role.title)}</div>
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px">${escapeHtml(role.title)}</div>
         <div style="color:#5c5348;margin:4px 0">${escapeHtml(role.companyName)} · ${escapeHtml(role.detectedLevel)}</div>
         <div>${escapeHtml(why)}</div>
         ${signal ? `<div style="color:#5c5348;margin-top:4px">${escapeHtml(signal)}</div>` : ""}
@@ -71,7 +71,7 @@ export function buildDigest(input: {
     })
     .join("");
 
-  const html = `<div style="background:#f3eadb;color:#1a1612;padding:28px;font-family:Georgia,serif">
+  const html = `<div style="background:#ffffff;color:#1a1612;padding:28px;font-family:Arial,Helvetica,sans-serif">
     <div style="letter-spacing:.14em;text-transform:uppercase;font-size:12px">Hiring Radar</div>
     <h1 style="font-weight:500;font-size:28px;margin:8px 0 12px">${escapeHtml(subject.replace("Hiring Radar: ", ""))}</h1>
     <p>${escapeHtml(intro)}</p>
@@ -106,12 +106,12 @@ export function buildRoleMail(input: {
   const items = input.roles
     .map(
       (role) => `<li style="margin:0 0 14px">
-        <div style="font-family:Georgia,serif;font-size:18px">${escapeHtml(role.title)}</div>
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px">${escapeHtml(role.title)}</div>
         <div style="color:#5c5348;margin-top:4px">${escapeHtml(role.companyName)}${role.location ? ` · ${escapeHtml(role.location)}` : ""} · ${escapeHtml(role.detectedLevel)}</div>
       </li>`
     )
     .join("");
-  const html = `<div style="background:#f3eadb;color:#1a1612;padding:28px;font-family:Georgia,serif">
+  const html = `<div style="background:#ffffff;color:#1a1612;padding:28px;font-family:Arial,Helvetica,sans-serif">
     <div style="letter-spacing:.14em;text-transform:uppercase;font-size:12px">Hiring Radar</div>
     <h1 style="font-weight:500;font-size:28px;margin:8px 0 12px">${escapeHtml(subject.replace("Hiring Radar: ", ""))}</h1>
     <p>${escapeHtml(intro)}</p>
