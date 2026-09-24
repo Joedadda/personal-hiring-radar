@@ -8,6 +8,7 @@ export type DigestRole = {
   detectedLevel: string;
   reasons: string[];
   signals: string[];
+  sourceNote?: string;
 };
 
 export function buildDigest(input: {
@@ -47,6 +48,7 @@ export function buildDigest(input: {
     return [
       `${index + 1}. ${role.title} — ${role.companyName} (${role.detectedLevel})`,
       why,
+      role.sourceNote || "",
       signal,
       role.url,
     ]
@@ -65,6 +67,7 @@ export function buildDigest(input: {
         <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px">${escapeHtml(role.title)}</div>
         <div style="color:#5c5348;margin:4px 0">${escapeHtml(role.companyName)} · ${escapeHtml(role.detectedLevel)}</div>
         <div>${escapeHtml(why)}</div>
+        ${role.sourceNote ? `<div style="color:#5c5348;margin-top:4px">${escapeHtml(role.sourceNote)}</div>` : ""}
         ${signal ? `<div style="color:#5c5348;margin-top:4px">${escapeHtml(signal)}</div>` : ""}
         <div style="margin-top:6px"><a href="${escapeHtml(role.url)}">${escapeHtml(role.url)}</a></div>
       </li>`;
@@ -85,7 +88,7 @@ export function buildDigest(input: {
 export function buildRoleMail(input: {
   domain: string;
   kind: "all" | "new";
-  roles: Array<{ title: string; companyName: string; location: string; detectedLevel: string }>;
+  roles: Array<{ title: string; companyName: string; location: string; detectedLevel: string; sourceNote?: string; url?: string }>;
   appUrl: string;
 }): { subject: string; text: string; html: string } {
   const domain = input.domain.trim() || "your field";
@@ -98,9 +101,14 @@ export function buildRoleMail(input: {
     input.kind === "new"
       ? "These roles showed up since the last check. Open the desk to apply."
       : "These are the open roles that fit your search. Open the desk to apply.";
-  const lines = input.roles.map(
-    (role, index) =>
-      `${index + 1}. ${role.title} — ${role.companyName}${role.location ? ` · ${role.location}` : ""} (${role.detectedLevel})`
+  const lines = input.roles.map((role, index) =>
+    [
+      `${index + 1}. ${role.title} — ${role.companyName}${role.location ? ` · ${role.location}` : ""} (${role.detectedLevel})`,
+      role.sourceNote || "",
+      role.url || "",
+    ]
+      .filter(Boolean)
+      .join("\n")
   );
   const text = [subject, "", intro, "", ...lines, "", `Open the desk: ${input.appUrl}`].join("\n");
   const items = input.roles
@@ -108,6 +116,8 @@ export function buildRoleMail(input: {
       (role) => `<li style="margin:0 0 14px">
         <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px">${escapeHtml(role.title)}</div>
         <div style="color:#5c5348;margin-top:4px">${escapeHtml(role.companyName)}${role.location ? ` · ${escapeHtml(role.location)}` : ""} · ${escapeHtml(role.detectedLevel)}</div>
+        ${role.sourceNote ? `<div style="color:#5c5348;margin-top:4px">${escapeHtml(role.sourceNote)}</div>` : ""}
+        ${role.url ? `<div style="margin-top:6px"><a href="${escapeHtml(role.url)}">${escapeHtml(role.url)}</a></div>` : ""}
       </li>`
     )
     .join("");

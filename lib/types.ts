@@ -68,6 +68,23 @@ export type JobRecord = {
   lastSeenAt: string;
   seenCount: number;
   active: boolean;
+  origin?: "careers" | "linkedin" | "both";
+  authorName?: string | null;
+  unverified?: boolean;
+};
+
+export type LinkedInSignal = {
+  id: string;
+  companyId: string;
+  jobId: string | null;
+  url: string;
+  authorName: string | null;
+  snippet: string;
+  publishedAt: string | null;
+  discoveredAt: string;
+  searchQuery: string;
+  contentHash: string;
+  status: "candidate" | "converted" | "irrelevant" | "duplicate";
 };
 
 export type MatchResult = {
@@ -102,6 +119,7 @@ export type Database = {
   activeProfileId: string | null;
   companies: Company[];
   jobs: JobRecord[];
+  linkedinSignals: LinkedInSignal[];
   digests: DigestRecord[];
   dailyScannedOn: string | null;
   dailyMailedOn: string | null;
@@ -118,6 +136,7 @@ export type RoleView = {
   excerpt: string;
   match: MatchResult;
   signals: string[];
+  sourceNote: string;
   freshness: "new" | "baseline" | "open";
   inDigest: boolean;
 };

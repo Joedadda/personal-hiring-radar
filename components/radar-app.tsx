@@ -645,6 +645,7 @@ function RoleList({ roles, label, offset = 0 }: { roles: StateView["roles"]; lab
               {role.location ? ` · ${role.location}` : ""}
               {` · ${role.match.detectedLevel}`}
             </CardDescription>
+            <CardDescription>{role.sourceNote}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             <p>{role.match.reasons[0]}</p>
