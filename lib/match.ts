@@ -96,17 +96,20 @@ export function matchJob(job: JobText, profile: Pick<Profile, "domain" | "prefer
   const titleNamesHere = graph.labels.some((label) => phraseHit(job.title, label));
   const titleNamesRival = rivals.some(
     (rival) =>
-      rival.score.score > 0 && rival.graph.labels.some((label) => phraseHit(job.title, label))
+      rival.score.score > 0 &&
+      rival.graph.labels.some((label) => phraseHit(job.title, label)) &&
+      (graph.id !== "marketing" || rival.graph.id !== "video")
   );
   const rivalNamed = rivals.some(
     (rival) =>
       rival.score.score >= userScore.score &&
       rival.score.score > 0 &&
-      rival.graph.labels.some((label) => phraseHit(heading, label))
+      rival.graph.labels.some((label) => phraseHit(heading, label)) &&
+      (graph.id !== "marketing" || rival.graph.id !== "video")
   );
   const dominated =
     (titleNamesRival && !titleNamesHere) ||
-    (!titleNamesHere && bestOther > userScore.score) ||
+    (!titleNamesHere && bestOther > userScore.score && !(graph.id === "marketing" && userScore.matched.includes("video"))) ||
     (!titleNamesHere && bestOther === userScore.score && bestOther > 0 && (!namedHere || rivalNamed));
 
   const domainOk =

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test lib/match.test.ts lib/detect.test.ts lib/digest.test.ts lib/linkedin.test.ts"
+    "test": "tsx --test lib/match.test.ts lib/detect.test.ts lib/digest.test.ts lib/linkedin.test.ts lib/related.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

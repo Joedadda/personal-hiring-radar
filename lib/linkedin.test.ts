@@ -14,17 +14,19 @@ const post = (over: Partial<SearchResult> = {}): SearchResult => ({
   ...over,
 });
 
-test("queries stay within six and name the company", () => {
+test("queries name the company and people who work there", () => {
   const queries = generateLinkedInQueries({
     company: "Sarvam",
     domain: "Marketing",
     preferredRoles: "Growth, Product Marketing, Community",
   });
-  assert.ok(queries.length >= 4 && queries.length <= 6);
-  assert.ok(queries.every((query) => query.includes('site:linkedin.com/posts "Sarvam"')));
+  assert.ok(queries.length >= 4 && queries.length <= 10);
+  assert.ok(queries.some((query) => query.includes('site:linkedin.com/posts "Sarvam"')));
+  assert.ok(queries.some((query) => query.includes('"at Sarvam"')));
   assert.ok(queries.some((query) => query.includes("we're hiring")));
-  assert.ok(queries.some((query) => query.includes("hiring \"Growth\"")));
+  assert.ok(queries.some((query) => query.includes('hiring "Growth"')));
   assert.equal(queries.filter((query) => query.includes("Community")).length, 0);
+  assert.equal(queries.filter((query) => query.includes("Product Marketing")).length, 0);
 });
 
 test("a product launch is not a job", () => {
@@ -33,47 +35,121 @@ test("a product launch is not a job", () => {
   assert.equal(found.jobTitle, null);
 });
 
-test("a hiring post without a title stays a signal", () => {
+test("a hiring post without a role title stays off the desk", () => {
+  const found = classifyResult(
+    post({
+      title: "Jane Doe, Content Lead at Neo on LinkedIn: We're hiring",
+      snippet: "We're hiring! DM me if you want to hear more.",
+    }),
+    "q",
+    { company: "Neo", domain: "Marketing" }
+  );
+  assert.equal(found.kind, "signal");
+  assert.equal(found.jobTitle, null);
+});
+
+test("a short link that only shares a common company word is dropped", () => {
+  const found = classifyResult(
+    post({
+      title: "Someone on LinkedIn: thoughts",
+      url: "https://lnkd.in/p/gp4aEs9p",
+      snippet: "Cardboard is useful. Apply today.",
+    }),
+    "q",
+    { company: "Cardboard", domain: "Marketing" }
+  );
+  assert.equal(found.kind, "irrelevant");
+  assert.equal(found.jobTitle, null);
+});
+
+test("a company email domain ties a filmmaker post to that company", () => {
+  const found = classifyResult(
+    post({
+      title: "Saksham Aggarwal on LinkedIn: We're hiring a Filmmaker Intern",
+      url: "https://www.linkedin.com/posts/sakshamagg27_were-hiring-a-filmmaker-intern-youll-activity-7504581030243176448-1Vko",
+      snippet:
+        "We're hiring a Filmmaker Intern! You'll script, shoot, and edit! Email filmmaker.intern.hiring@cardboard.ai",
+    }),
+    "q",
+    { company: "Cardboard", domain: "Video", host: "cardboard.ai" }
+  );
+  assert.equal(found.kind, "job");
+  assert.equal(found.jobTitle, "Filmmaker Intern");
+});
+
+test("a personal hiring post becomes a role for that company", () => {
+  const found = classifyResult(
+    post({
+      title: "Jane Doe, Content Lead at Neo on LinkedIn: We're hiring",
+      snippet: "We're hiring a marketing lead. DM me.",
+      url: "https://www.linkedin.com/posts/jane-doe-activity-4",
+    }),
+    "q",
+    { company: "Neo", domain: "Marketing" }
+  );
+  assert.equal(found.kind, "job");
+  assert.equal(found.jobTitle, "marketing lead");
+  assert.equal(found.authorName, "Jane Doe, Content Lead at Neo");
+  const db = { jobs: [] as JobRecord[], linkedinSignals: [] as LinkedInSignal[] };
+  absorbLinkedIn(db, "neo", [found], "2026-09-24T00:00:00.000Z");
+  assert.equal(db.jobs.length, 1);
+  assert.equal(db.jobs[0].origin, "linkedin");
+  assert.equal(db.jobs[0].title, "marketing lead");
+  assert.equal(db.jobs[0].authorName, "Jane Doe, Content Lead at Neo");
+  assert.equal(db.linkedinSignals[0].status, "converted");
+});
+
+test("a hiring post about another company is dropped", () => {
   const found = classifyResult(
     post({
       title: "Jane Doe on LinkedIn: We're hiring",
-      snippet: "We're hiring! DM me if you want to hear more.",
+      snippet: "We're hiring a marketing lead at Other Co. DM me.",
     }),
-    "q"
+    "q",
+    { company: "Neo", domain: "Marketing" }
   );
-  assert.equal(found.kind, "signal");
-  assert.equal(found.authorName, "Jane Doe");
+  assert.equal(found.kind, "irrelevant");
   assert.equal(found.jobTitle, null);
 });
 
 test("a clear role becomes a provisional job", () => {
   const found = classifyResult(
     post({
-      title: "Jane Doe on LinkedIn: We're hiring",
+      title: "Jane Doe at Acme on LinkedIn: We're hiring",
       snippet: "We're looking for a Growth Intern to join our team. DM me if interested.",
     }),
-    "q"
+    "q",
+    { company: "Acme", domain: "Marketing" }
   );
   assert.equal(found.kind, "job");
   assert.equal(found.jobTitle, "Growth Intern");
-  assert.equal(found.authorName, "Jane Doe");
+  assert.equal(found.authorName, "Jane Doe at Acme");
 });
 
 test("the same post url hashes once", () => {
   const url = "https://www.linkedin.com/posts/jane-doe-activity-9";
   assert.equal(contentHash(url), contentHash(`${url}?trk=public_profile`));
   const first = classifyResult(
-    post({ url, title: "Jane Doe on LinkedIn: hiring", snippet: "We're hiring a Brand Associate for the team." }),
-    "q"
+    post({ url, title: "Jane Doe at Acme on LinkedIn: hiring", snippet: "We're hiring a Brand Associate for the team." }),
+    "q",
+    { company: "Acme", domain: "Marketing" }
   );
-  const second = classifyResult(post({ url, snippet: "We're hiring a Brand Associate for the team. Apply." }), "q");
+  const second = classifyResult(
+    post({ url, title: "Jane Doe at Acme on LinkedIn: hiring", snippet: "We're hiring a Brand Associate for the team. Apply." }),
+    "q",
+    { company: "Acme", domain: "Marketing" }
+  );
   assert.equal(dedupePosts([first, second]).length, 1);
 });
 
 test("a repeated hash does not create a second job", () => {
   const found = classifyResult(
-    post({ snippet: "We're looking for a Growth Intern to join our team." }),
-    "site:linkedin.com/posts"
+    post({
+      title: "Jane Doe at Acme on LinkedIn: We're hiring",
+      snippet: "We're looking for a Growth Intern to join our team.",
+    }),
+    "site:linkedin.com/posts",
+    { company: "Acme", domain: "Marketing" }
   );
   const db = { jobs: [] as JobRecord[], linkedinSignals: [] as LinkedInSignal[] };
   absorbLinkedIn(db, "co", [found], "2026-09-24T00:00:00.000Z");
@@ -106,8 +182,12 @@ test("the same title merges onto the careers job", () => {
     origin: "careers",
   };
   const found = classifyResult(
-    post({ snippet: "We're looking for a Growth Intern to join our team." }),
-    "q"
+    post({
+      title: "Jane Doe at Acme on LinkedIn: We're hiring",
+      snippet: "We're looking for a Growth Intern to join our team.",
+    }),
+    "q",
+    { company: "Acme", domain: "Marketing" }
   );
   const db = { jobs: [careers], linkedinSignals: [] as LinkedInSignal[] };
   absorbLinkedIn(db, "co", [found], "2026-09-24T00:00:00.000Z");
@@ -128,7 +208,7 @@ test("tavily reports a missing key and keeps linkedin post hits", async () => {
       JSON.stringify({
         results: [
           {
-            title: "A founder on LinkedIn: hiring",
+            title: "A founder at Sarvam on LinkedIn: hiring",
             url: "https://www.linkedin.com/posts/founder-activity-3",
             content: "We're hiring a Community Intern to join the team.",
             published_date: "2026-09-20",

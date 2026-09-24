@@ -3,9 +3,10 @@ import { discoverCompany, inspectCareerDocument, probeKnownFeeds } from "./disco
 import { buildDigest, buildRoleMail, type DigestRole } from "./digest";
 import { mailConfigured, sendDigestEmail } from "./email";
 import { FetchError, fetchText, normalizeWebsite } from "./http";
-import { absorbLinkedIn, discoverLinkedInPosts } from "./linkedin";
+import { absorbLinkedIn, discoverLinkedInPosts, isCredibleLinkedInJob } from "./linkedin";
 import { fetchJobs, type FetchedJob } from "./jobs";
 import { matchJob } from "./match";
+import { applyRelatedFit, judgeRelated, relatedField } from "./related";
 import { hiringSignals } from "./signals";
 import { createSearchProvider } from "./search/provider";
 import { daysAgo, excerpt, hostOf } from "./text";
@@ -144,6 +145,7 @@ async function linkedInFor(company: Company) {
   try {
     return await discoverLinkedInPosts({
       company: company.name,
+      host: hostOf(company.website),
       domain: profile.domain,
       preferredRoles: profile.preferredRoles,
       search: createSearchProvider(),
@@ -186,9 +188,10 @@ function rolesFor(db: Database, profile: Profile): RoleView[] {
   const roles: RoleView[] = [];
   for (const job of db.jobs) {
     if (!job.active || !owned.has(job.companyId)) continue;
+    if (job.origin === "linkedin" && !isCredibleLinkedInJob(job)) continue;
     const company = db.companies.find((item) => item.id === job.companyId);
     if (!company) continue;
-      const match = matchJob(
+      let match = matchJob(
         {
           title: job.title,
           body: job.descriptionText,
@@ -197,6 +200,9 @@ function rolesFor(db: Database, profile: Profile): RoleView[] {
         },
         profile
       );
+      if (!match.domainMatch && job.related?.field === relatedField(profile) && job.related.fit) {
+        match = applyRelatedFit(match, profile.domain.trim(), job.title);
+      }
       if (!match.domainMatch) continue;
       const freshness = company.scanCount <= 1 ? "baseline" : job.seenCount === 1 ? "new" : "open";
       roles.push({
@@ -295,6 +301,43 @@ export function buildState(db: Database): StateView {
       : null,
     mailConfigured: mailConfigured(),
   };
+}
+
+async function storeRelatedFits(): Promise<void> {
+  const profile = activeProfile(readDb());
+  if (!profile) return;
+  const field = relatedField(profile);
+  const pending = readDb().jobs.filter((job) => {
+    if (!job.active) return false;
+    const company = readDb().companies.find((item) => item.id === job.companyId && item.profileId === profile.id);
+    if (!company) return false;
+    if (job.origin === "linkedin" && !isCredibleLinkedInJob(job)) return false;
+    if (job.related?.field === field) return false;
+    return !matchJob(
+      {
+        title: job.title,
+        body: job.descriptionText,
+        employmentHint: job.employmentHint,
+        department: job.department,
+      },
+      profile
+    ).domainMatch;
+  });
+  if (pending.length === 0) return;
+  const accepted = await judgeRelated({
+    domain: profile.domain,
+    preferredRoles: profile.preferredRoles,
+    keywords: profile.keywords,
+    roles: pending.map((job) => ({ title: job.title, excerpt: excerpt(job.descriptionText, 240) })),
+  });
+  if (!accepted) return;
+  const ids = new Set(pending.map((job) => job.id));
+  await updateDb((db) => {
+    for (const job of db.jobs) {
+      if (!ids.has(job.id)) continue;
+      job.related = { field, fit: accepted.has(job.title.trim().toLowerCase()) };
+    }
+  });
 }
 
 export function getState(): StateView {
@@ -407,6 +450,7 @@ export async function addCompany(rawUrl: string): Promise<StateView> {
     db.companies.push(refreshed.company);
     finishCompany(db, refreshed.company, refreshed.jobs, refreshed.failed, linked);
   });
+  await storeRelatedFits();
   return getState();
 }
 
@@ -430,6 +474,7 @@ export async function scanCompany(id: string): Promise<StateView> {
     db.companies[index] = refreshed.company;
     finishCompany(db, db.companies[index], refreshed.jobs, refreshed.failed, linked);
   });
+  await storeRelatedFits();
   return getState();
 }
 
@@ -447,6 +492,7 @@ export async function scanAll(): Promise<StateView> {
       finishCompany(db, db.companies[index], refreshed.jobs, refreshed.failed, linked);
     });
   }
+  await storeRelatedFits();
   return getState();
 }
 

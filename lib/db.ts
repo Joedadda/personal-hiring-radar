@@ -72,7 +72,6 @@ type Slot = {
 };
 
 const slots = new Map<string, Promise<Slot>>();
-const chains = new Map<string, Promise<unknown>>();
 const current = new AsyncLocalStorage<Slot>();
 
 async function loadSlot(userId: string): Promise<Slot> {
@@ -126,19 +125,8 @@ export function updateDb<T>(fn: (db: Database) => T): Promise<T> {
 }
 
 export async function withDesk<T>(userId: string, fn: () => Promise<T> | T): Promise<T> {
-  const previous = chains.get(userId) ?? Promise.resolve();
-  const run = previous.catch(() => undefined).then(async () => {
-    const slot = await slotFor(userId);
-    return current.run(slot, () => Promise.resolve().then(fn));
-  });
-  chains.set(
-    userId,
-    run.then(
-      () => undefined,
-      () => undefined
-    )
-  );
-  return run;
+  const slot = await slotFor(userId);
+  return current.run(slot, () => Promise.resolve().then(fn));
 }
 
 export async function listDeskUserIds(): Promise<string[]> {

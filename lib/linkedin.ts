@@ -24,7 +24,11 @@ export function contentHash(url: string): string {
   return createHash("sha256").update(canonical).digest("hex").slice(0, 20);
 }
 
-export function classifyResult(result: SearchResult, query: string): ClassifiedPost {
+export function classifyResult(
+  result: SearchResult,
+  query: string,
+  context: { company: string; domain: string; host?: string } = { company: "", domain: "" }
+): ClassifiedPost {
   const snippet = collapse(result.snippet || "");
   const headline = collapse(result.title.replace(/^.{0,80}?\s+on LinkedIn:\s*/i, ""));
   const spoken = /^(we'?re hiring|we are hiring|hiring)[.!]?$/i.test(headline) ? "" : headline;
@@ -39,12 +43,31 @@ export function classifyResult(result: SearchResult, query: string): ClassifiedP
     contentHash: contentHash(result.url || snippet),
     authorName,
   };
-  if (!/linkedin\.com\/(posts|feed)\//i.test(result.url) || !HIRING.test(blob)) {
+  const haystack = collapse(`${result.title} ${snippet}`);
+  if (!isLinkedInPostUrl(result.url) || !HIRING.test(blob) || !worksAt(haystack, context.company, context.host)) {
     return { ...base, kind: "irrelevant", jobTitle: null };
   }
   const jobTitle = extractTitle(blob);
   if (!jobTitle) return { ...base, kind: "signal", jobTitle: null };
   return { ...base, kind: "job", jobTitle };
+}
+
+export function isCredibleLinkedInJob(job: { url: string; title: string }): boolean {
+  return isLinkedInPostUrl(job.url) && !/ hire$/i.test(job.title) && !/^hiring post$/i.test(job.title);
+}
+
+function isLinkedInPostUrl(url: string): boolean {
+  if (/lnkd\.in/i.test(url)) return false;
+  return /https?:\/\/([a-z0-9-]+\.)?linkedin\.com\/(posts|feed)\//i.test(url);
+}
+
+function worksAt(text: string, company: string, host = ""): boolean {
+  const site = host.trim().replace(/^www\./, "");
+  if (site.includes(".") && text.toLowerCase().includes(site.toLowerCase())) return true;
+  const name = company.trim();
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\bat\\s+${escaped}\\b`, "i").test(text);
 }
 
 export function dedupePosts(posts: ClassifiedPost[]): ClassifiedPost[] {
@@ -61,6 +84,7 @@ export function dedupePosts(posts: ClassifiedPost[]): ClassifiedPost[] {
 export async function discoverLinkedInPosts(input: {
   company: string;
   domain: string;
+  host?: string;
   preferredRoles?: string;
   search: SearchProvider;
 }): Promise<{ posts: ClassifiedPost[]; status: "ok" | "off" | "failed" }> {
@@ -76,7 +100,9 @@ export async function discoverLinkedInPosts(input: {
       continue;
     }
     sawResult = true;
-    for (const result of outcome.results) posts.push(classifyResult(result, query));
+    for (const result of outcome.results) {
+      posts.push(classifyResult(result, query, { company: input.company, domain: input.domain, host: input.host }));
+    }
   }
   if (!sawResult && sawFailure) return { posts: [], status: "failed" };
   return { posts: dedupePosts(posts), status: "ok" };
@@ -177,10 +203,10 @@ function authorFrom(title: string): string | null {
 
 function extractTitle(blob: string): string | null {
   const patterns = [
-    /\blooking for\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to|who|for|at)\b|[.!?|]|$)/i,
-    /\bwe'?re hiring\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to|who|for|at)\b|[.!?|]|$)/i,
-    /\bwe are hiring\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to|who|for|at)\b|[.!?|]|$)/i,
-    /\bhiring\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to|who|for|at)\b|[.!?|]|$)/i,
+    /\blooking for\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to join|to work|who\b|you'll|you’ll)|[.!?|]|$)/i,
+    /\bwe'?re hiring\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to join|to work|who\b|you'll|you’ll)|[.!?|]|$)/i,
+    /\bwe are hiring\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to join|to work|who\b|you'll|you’ll)|[.!?|]|$)/i,
+    /\bhiring\s+(?:an?\s+)?([A-Za-z][A-Za-z0-9/+&,'’ -]{2,70}?)(?=\s+(?:to join|to work|who\b|you'll|you’ll)|[.!?|]|$)/i,
   ];
   for (const pattern of patterns) {
     const match = blob.match(pattern);
@@ -191,7 +217,13 @@ function extractTitle(blob: string): string | null {
 }
 
 function cleanupTitle(value: string): string | null {
-  const title = collapse(value).replace(/[,:; -]+$/g, "");
+  const title = collapse(value)
+    .replace(/\bwe'?re hiring\b.*$/i, "")
+    .replace(/\b(you'll|you’ll|you will)\b.*$/i, "")
+    .replace(/[,:; -]+$/g, "")
+    .split(/\s+/)
+    .slice(0, 6)
+    .join(" ");
   if (title.length < 3 || /^(our team|someone|you|people|candidates?)$/i.test(title)) return null;
   if (/\b(hiring|looking)\b/i.test(title)) return null;
   return title;

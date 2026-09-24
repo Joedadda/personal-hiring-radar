@@ -32,7 +32,7 @@ export async function searchTavily(query: string, options: SearchOptions = {}): 
     const results: SearchResult[] = [];
     for (const hit of body.results ?? []) {
       const url = hit.url || "";
-      if (!/linkedin\.com\/(posts|feed)\//i.test(url)) continue;
+      if (/lnkd\.in/i.test(url) || !/https?:\/\/([a-z0-9-]+\.)?linkedin\.com\/(posts|feed)\//i.test(url)) continue;
       results.push({
         title: (hit.title || "").trim(),
         url,

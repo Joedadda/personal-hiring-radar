@@ -24,6 +24,18 @@ test("community intern is marketing even when the title omits the word", () => {
   assert.match(result.reasons[0], /does not need the word marketing/i);
 });
 
+test("a filmmaker internship is video work", () => {
+  const result = matchJob(
+    {
+      title: "Filmmaker Intern",
+      body: "You'll script, shoot, and edit. Email filmmaker.intern.hiring@cardboard.ai",
+    },
+    { domain: "Video", preferredRoles: "", levels: ["any"], keywords: "" }
+  );
+  assert.equal(result.domainMatch, true);
+  assert.equal(result.relevant, true);
+});
+
 test("videography and seo internships stay inside marketing", () => {
   const video = matchJob(
     {

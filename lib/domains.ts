@@ -279,9 +279,37 @@ const GRAPHS: DomainGraph[] = [
       },
     ],
   },
+  {
+    id: "video",
+    labels: ["video", "film", "filmmaker", "videography"],
+    examples: ["Filmmaker Intern", "Video Editor", "Videographer"],
+    clusters: [
+      {
+        id: "production",
+        label: "film",
+        phrases: [
+          "filmmaker",
+          "filmmaking",
+          "cinematography",
+          "cinematographer",
+          "videography",
+          "videographer",
+          "video editor",
+          "video production",
+          "showreel",
+          "director of photography",
+        ],
+      },
+    ],
+  },
 ];
 
 const ALIASES: Record<string, string> = {
+  video: "video",
+  film: "video",
+  filmmaker: "video",
+  videography: "video",
+  cinematography: "video",
   marketing: "marketing",
   design: "design",
   "ux design": "design",

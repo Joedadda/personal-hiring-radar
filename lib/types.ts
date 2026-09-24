@@ -71,6 +71,7 @@ export type JobRecord = {
   origin?: "careers" | "linkedin" | "both";
   authorName?: string | null;
   unverified?: boolean;
+  related?: { field: string; fit: boolean } | null;
 };
 
 export type LinkedInSignal = {

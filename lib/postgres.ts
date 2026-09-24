@@ -7,7 +7,7 @@ export function getPool(): Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error("DATABASE_URL is not set.");
-    pool = new Pool({ connectionString });
+    pool = new Pool({ connectionString, connectionTimeoutMillis: 10_000, query_timeout: 20_000 });
   }
   return pool;
 }

@@ -1,23 +1,29 @@
 import { splitList } from "../text";
 
-const QUERY_CAP = 6;
+const QUERY_CAP = 10;
 
 export function generateLinkedInQueries(input: {
   company: string;
   domain: string;
   preferredRoles?: string;
+  host?: string;
 }): string[] {
   const company = input.company.trim().replace(/"/g, "");
   const domain = input.domain.trim().replace(/"/g, "");
+  const host = (input.host || "").trim().replace(/^www\./, "").replace(/"/g, "");
   if (!company) return [];
   const queries = [
     `site:linkedin.com/posts "${company}" hiring ${domain}`.trim(),
     `site:linkedin.com/posts "${company}" "we're hiring"`,
-    `site:linkedin.com/posts "${company}" "looking for" ${domain}`.trim(),
-    `site:linkedin.com/posts "${company}" "join our team"`,
+    `site:linkedin.com/posts "at ${company}" hiring ${domain}`.trim(),
+    `site:linkedin.com/posts "at ${company}" "we're hiring"`,
+    `site:linkedin.com/posts "at ${company}" "looking for" ${domain}`.trim(),
   ];
-  for (const role of splitList(input.preferredRoles || "").slice(0, 2)) {
-    queries.push(`site:linkedin.com/posts "${company}" hiring "${role.replace(/"/g, "")}"`);
+  if (host.includes(".")) {
+    queries.push(`site:linkedin.com/posts "${host}" "we're hiring"`);
+    queries.push(`site:linkedin.com/posts "${host}" hiring`);
   }
+  const role = splitList(input.preferredRoles || "")[0];
+  if (role) queries.push(`site:linkedin.com/posts "at ${company}" hiring "${role.replace(/"/g, "")}"`);
   return [...new Set(queries.map((query) => query.replace(/\s+/g, " ").trim()))].slice(0, QUERY_CAP);
 }

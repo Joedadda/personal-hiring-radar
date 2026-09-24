@@ -633,35 +633,63 @@ function Desk({ state, setState, onAdd }: { state: StateView; setState: (state: 
 
 function RoleList({ roles, label, offset = 0 }: { roles: StateView["roles"]; label: string; offset?: number }) {
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
+    <div className="flex flex-col gap-4">
+      <p className="text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">{label}</p>
       {roles.map((role, index) => (
-        <Card key={role.id}>
-          <CardHeader>
-            <CardDescription className="tabular-nums">{String(offset + index + 1).padStart(2, "0")}</CardDescription>
-            <CardTitle className="text-lg">{role.title}</CardTitle>
-            <CardDescription>
-              {role.companyName}
-              {role.location ? ` · ${role.location}` : ""}
-              {` · ${role.match.detectedLevel}`}
-            </CardDescription>
-            <CardDescription>{role.sourceNote}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <p>{role.match.reasons[0]}</p>
-            <ul className="text-sm text-muted-foreground">
+        <RoleCard key={role.id} role={role} index={offset + index + 1} />
+      ))}
+    </div>
+  );
+}
+
+function RoleCard({ role, index }: { role: StateView["roles"][number]; index: number }) {
+  const reason = role.match.reasons[0];
+  return (
+    <Card className="gap-0 py-0 transition-shadow duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:ring-foreground/20">
+      <CardHeader className="gap-3 px-5 pt-5 pb-4">
+        <p className="font-mono text-[11px] tracking-[0.18em] text-muted-foreground tabular-nums">{String(index).padStart(2, "0")}</p>
+        <CardTitle className="text-xl leading-tight tracking-tight">{role.title}</CardTitle>
+        <div className="flex flex-col gap-0.5 text-sm">
+          <p className="font-medium">{role.companyName}</p>
+          <p className="text-muted-foreground">
+            {[role.location, role.match.detectedLevel].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+      </CardHeader>
+      <div className="mx-5 border-t" />
+      <CardContent className="flex flex-col gap-4 px-5 py-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">Source</p>
+          <p className="text-sm">{role.sourceNote}</p>
+        </div>
+        {reason ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">Why it fits</p>
+            <p className="text-[15px] leading-relaxed">{reason}</p>
+          </div>
+        ) : null}
+        {role.signals.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">From the posting</p>
+            <ul className="flex flex-col gap-1.5 border-l border-foreground/15 pl-3 text-sm leading-relaxed text-muted-foreground">
               {role.signals.map((signal) => (
                 <li key={signal}>{signal}</li>
               ))}
             </ul>
-            <Button variant="link" className="h-auto justify-start px-0" render={<a href={role.url} target="_blank" rel="noreferrer" />}>
-              Open {role.title}
-            </Button>
-            <Progress value={role.match.score} aria-label={`Match ${role.match.score}`} />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+          </div>
+        ) : null}
+      </CardContent>
+      <CardFooter className="justify-between gap-4 px-5 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="shrink-0 text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">Match</span>
+          <Progress className="w-24 shrink-0" value={role.match.score} aria-label={`Match ${role.match.score}`} />
+          <span className="shrink-0 text-sm font-medium tabular-nums">{role.match.score}</span>
+        </div>
+        <Button variant="outline" size="sm" render={<a href={role.url} target="_blank" rel="noreferrer" />}>
+          Open role
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -743,10 +771,12 @@ function ProfileTray({
               void requestState("/api/profile", {
                 method: "PUT",
                 body: JSON.stringify({ id: profile?.id, name: domain, domain, preferredRoles: roles, levels, keywords, email }),
+                signal: AbortSignal.timeout(20_000),
               })
                 .then(onSaved)
                 .catch((caught) => {
-                  setError(caught instanceof Error ? caught.message : "Could not save.");
+                  const timedOut = caught instanceof Error && caught.name === "TimeoutError";
+                  setError(timedOut ? "Saving took too long. Try again." : caught instanceof Error ? caught.message : "Could not save.");
                   setSaving(false);
                 });
             }}
