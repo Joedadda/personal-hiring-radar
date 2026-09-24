@@ -1,22 +1,9 @@
-import { getState, resetDesk } from "@/lib/pipeline";
-import { jsonError } from "@/lib/respond";
-import { NextResponse } from "next/server";
+import { withSignedInDesk } from "@/lib/guard";
+import { getState } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  try {
-    return NextResponse.json(getState());
-  } catch (error) {
-    return jsonError(error);
-  }
-}
-
-export async function DELETE() {
-  try {
-    return NextResponse.json(await resetDesk());
-  } catch (error) {
-    return jsonError(error);
-  }
+export function GET() {
+  return withSignedInDesk(() => getState());
 }

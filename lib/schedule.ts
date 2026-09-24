@@ -1,4 +1,5 @@
 import { deskUrl } from "./desk-url";
+import { listDeskUserIds, withDesk } from "./db";
 import { runDailyCheck } from "./pipeline";
 
 const ZONE = "Asia/Kolkata";
@@ -19,25 +20,19 @@ export function istParts(now = new Date()): { today: string; hour: number } {
   };
 }
 
-let running = false;
+let running: Promise<void> | null = null;
 
-export async function runDailyTick(appUrl?: string) {
-  const { today, hour } = istParts();
-  if (hour < 16 || running) return;
-  running = true;
-  try {
-    await runDailyCheck(appUrl || deskUrl(), today);
-  } finally {
-    running = false;
-  }
-}
-
-export function startDailyCheck() {
-  const tick = () => {
-    void runDailyTick().catch((error) => {
-      console.error(error);
-    });
-  };
-  setInterval(tick, 60_000);
-  tick();
+export function startDailyChecks(appUrl?: string): Promise<void> {
+  if (running) return running;
+  const task = (async () => {
+    const { today } = istParts();
+    const ids = await listDeskUserIds();
+    for (const userId of ids) {
+      await withDesk(userId, () => runDailyCheck(appUrl || deskUrl(), today));
+    }
+  })();
+  running = task.finally(() => {
+    running = null;
+  });
+  return running;
 }

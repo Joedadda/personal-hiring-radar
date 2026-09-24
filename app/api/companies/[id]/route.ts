@@ -1,6 +1,5 @@
+import { withSignedInDesk } from "@/lib/guard";
 import { removeCompany, scanCompany } from "@/lib/pipeline";
-import { jsonError } from "@/lib/respond";
-import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,20 +7,16 @@ export const maxDuration = 120;
 
 type Context = { params: Promise<{ id: string }> };
 
-export async function POST(_request: Request, context: Context) {
-  try {
+export function POST(_request: Request, context: Context) {
+  return withSignedInDesk(async () => {
     const { id } = await context.params;
-    return NextResponse.json(await scanCompany(id));
-  } catch (error) {
-    return jsonError(error);
-  }
+    return scanCompany(id);
+  });
 }
 
-export async function DELETE(_request: Request, context: Context) {
-  try {
+export function DELETE(_request: Request, context: Context) {
+  return withSignedInDesk(async () => {
     const { id } = await context.params;
-    return NextResponse.json(await removeCompany(id));
-  } catch (error) {
-    return jsonError(error);
-  }
+    return removeCompany(id);
+  });
 }

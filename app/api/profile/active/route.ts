@@ -1,13 +1,12 @@
 import { withSignedInDesk } from "@/lib/guard";
-import { addCompany } from "@/lib/pipeline";
+import { activateProfile } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
 
 export function POST(request: Request) {
   return withSignedInDesk(async () => {
-    const body = (await request.json()) as { url?: string };
-    return addCompany(body.url || "");
+    const body = (await request.json()) as { id?: string };
+    return activateProfile(body.id || "");
   });
 }

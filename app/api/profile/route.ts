@@ -1,20 +1,29 @@
-import { saveProfile } from "@/lib/pipeline";
-import { jsonError } from "@/lib/respond";
-import { NextResponse } from "next/server";
+import { withSignedInDesk } from "@/lib/guard";
+import { FetchError } from "@/lib/http";
+import { removeProfile, saveProfile } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function PUT(request: Request) {
-  try {
+export function PUT(request: Request) {
+  return withSignedInDesk(async () => {
     const body = (await request.json()) as {
+      id?: string;
+      name?: string;
       domain?: string;
       preferredRoles?: string;
       levels?: string[];
       keywords?: string;
+      email?: string;
     };
-    return NextResponse.json(await saveProfile(body));
-  } catch (error) {
-    return jsonError(error);
-  }
+    return saveProfile(body);
+  });
+}
+
+export function DELETE(request: Request) {
+  return withSignedInDesk(async () => {
+    const body = (await request.json()) as { id?: string };
+    if (!body.id) throw new FetchError("That profile is not on the desk.");
+    return removeProfile(body.id);
+  });
 }

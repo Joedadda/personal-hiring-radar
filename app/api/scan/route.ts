@@ -1,15 +1,10 @@
+import { withSignedInDesk } from "@/lib/guard";
 import { scanAll } from "@/lib/pipeline";
-import { jsonError } from "@/lib/respond";
-import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST() {
-  try {
-    return NextResponse.json(await scanAll());
-  } catch (error) {
-    return jsonError(error);
-  }
+export function POST() {
+  return withSignedInDesk(() => scanAll());
 }

@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { authClient } from "@/lib/auth-client";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -30,6 +31,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { previewTitles } from "@/lib/domains";
 import type { Level, StateView } from "@/lib/types";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 const LEVELS: Array<{ id: Level; label: string }> = [
@@ -48,6 +50,10 @@ async function requestState(url: string, init?: RequestInit): Promise<StateView>
     headers: { "content-type": "application/json", ...(init?.headers || {}) },
   });
   const data = (await response.json()) as StateView & { error?: string };
+  if (response.status === 401) {
+    window.location.assign("/login");
+    throw new Error(data.error || "Sign in to use this desk.");
+  }
   if (!response.ok) throw new Error(data.error || "Request failed.");
   return data;
 }
@@ -100,14 +106,21 @@ function Boot() {
 function Mast({
   date,
   profile,
+  profiles,
   onEdit,
   onReset,
+  onSwitch,
+  onAdd,
 }: {
   date?: string;
   profile?: StateView["profile"];
+  profiles?: StateView["profiles"];
   onEdit?: () => void;
   onReset?: () => void;
+  onSwitch?: (id: string) => void;
+  onAdd?: () => void;
 }) {
+  const router = useRouter();
   return (
     <header className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
@@ -115,12 +128,47 @@ function Mast({
         <p className="text-lg font-semibold" translate="no">Hiring Radar</p>
       </div>
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        <p className="text-sm text-muted-foreground">{date || "A private clipping desk"}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-muted-foreground">{date || "A private clipping desk"}</p>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              void authClient.signOut().then(() => {
+                router.push("/login");
+                router.refresh();
+              });
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
         {profile ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {profiles && profiles.length > 1 && onSwitch ? (
+              <label className="text-sm">
+                <span className="sr-only">Profile</span>
+                <select
+                  className="h-8 rounded-lg border bg-background px-2"
+                  value={profile.id}
+                  onChange={(event) => onSwitch(event.target.value)}
+                >
+                  {profiles.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <Button type="button" variant="outline" onClick={onEdit}>
               {profile.domain} · {levelLabel(profile)}
             </Button>
+            {onAdd ? (
+              <Button type="button" variant="outline" onClick={onAdd}>
+                New Profile
+              </Button>
+            ) : null}
             <Button type="button" variant="ghost" onClick={onReset}>
               Start Over
             </Button>
@@ -131,7 +179,7 @@ function Mast({
   );
 }
 
-function Onboarding({ onDone }: { onDone: (state: StateView) => void }) {
+function Onboarding({ onDone, onCancel }: { onDone: (state: StateView) => void; onCancel?: () => void }) {
   const [step, setStep] = useState(0);
   const [domain, setDomain] = useState("");
   const [roles, setRoles] = useState("");
@@ -251,6 +299,10 @@ function Onboarding({ onDone }: { onDone: (state: StateView) => void }) {
             <Button type="button" variant="ghost" onClick={() => { setError(""); setStep((current) => current - 1); }}>
               Back
             </Button>
+          ) : onCancel ? (
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
           ) : <span />}
           {step < 4 ? (
             <Button type="button" onClick={next}>
@@ -307,7 +359,7 @@ function CompanyForm({
   );
 }
 
-function Desk({ state, setState }: { state: StateView; setState: (state: StateView) => void }) {
+function Desk({ state, setState, onAdd }: { state: StateView; setState: (state: StateView) => void; onAdd: () => void }) {
   const profile = state.profile;
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<"add" | "scan" | "send" | null>(null);
@@ -394,7 +446,19 @@ function Desk({ state, setState }: { state: StateView; setState: (state: StateVi
 
   return (
     <main id="desk" className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">
-      <Mast date={date} profile={profile} onEdit={() => setEditing(true)} onReset={() => setResetting(true)} />
+      <Mast
+        date={date}
+        profile={profile}
+        profiles={state.profiles}
+        onEdit={() => setEditing(true)}
+        onReset={() => setResetting(true)}
+        onSwitch={(id) => {
+          void requestState("/api/profile/active", { method: "POST", body: JSON.stringify({ id }) })
+            .then(setState)
+            .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not switch profiles."));
+        }}
+        onAdd={onAdd}
+      />
       {state.companies.length === 0 ? (
         <Card>
           <CardHeader>
@@ -507,14 +571,14 @@ function Desk({ state, setState }: { state: StateView; setState: (state: StateVi
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Start Over</AlertDialogTitle>
-            <AlertDialogDescription>This clears the search, every company, and the roles already read. You begin again at the first question.</AlertDialogDescription>
+            <AlertDialogDescription>This removes {profile.name} and the companies it is watching. Other profiles stay on the desk.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                void requestState("/api/state", { method: "DELETE" }).then(setState);
+                void requestState("/api/profile", { method: "DELETE", body: JSON.stringify({ id: profile.id }) }).then(setState);
               }}
             >
               Reset the Desk
@@ -524,6 +588,7 @@ function Desk({ state, setState }: { state: StateView; setState: (state: StateVi
       </AlertDialog>
 
       <ProfileTray
+        key={profile.id}
         open={editing}
         state={state}
         onClose={() => setEditing(false)}
@@ -668,7 +733,7 @@ function ProfileTray({
               setSaving(true);
               void requestState("/api/profile", {
                 method: "PUT",
-                body: JSON.stringify({ domain, preferredRoles: roles, levels, keywords, email }),
+                body: JSON.stringify({ id: profile?.id, name: domain, domain, preferredRoles: roles, levels, keywords, email }),
               })
                 .then(onSaved)
                 .catch((caught) => {
@@ -688,6 +753,7 @@ function ProfileTray({
 export function RadarApp() {
   const [state, setState] = useState<StateView | null>(null);
   const [booting, setBooting] = useState(true);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -696,7 +762,7 @@ export function RadarApp() {
         if (live) setState(next);
       })
       .catch(() => {
-        if (live) setState({ profile: null, companies: [], roles: [], digest: null, smtpConfigured: false });
+        if (live) setState({ profile: null, profiles: [], companies: [], roles: [], digest: null, mailConfigured: false });
       })
       .finally(() => {
         if (live) setBooting(false);
@@ -707,6 +773,17 @@ export function RadarApp() {
   }, []);
 
   if (booting || !state) return <Boot />;
+  if (creating) {
+    return (
+      <Onboarding
+        onDone={(next) => {
+          setCreating(false);
+          setState(next);
+        }}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  }
   if (!state.profile) return <Onboarding onDone={setState} />;
-  return <Desk state={state} setState={setState} />;
+  return <Desk state={state} setState={setState} onAdd={() => setCreating(true)} />;
 }

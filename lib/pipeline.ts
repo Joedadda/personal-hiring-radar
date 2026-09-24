@@ -1,7 +1,7 @@
-import { readDb, updateDb } from "./db";
+import { activeProfile, companiesFor, digestsFor, readDb, updateDb } from "./db";
 import { discoverCompany, inspectCareerDocument, probeKnownFeeds } from "./discover";
 import { buildDigest, buildRoleMail, type DigestRole } from "./digest";
-import { sendDigestEmail, smtpConfigured } from "./email";
+import { mailConfigured, sendDigestEmail } from "./email";
 import { FetchError, fetchText, normalizeWebsite } from "./http";
 import { fetchJobs, type FetchedJob } from "./jobs";
 import { matchJob } from "./match";
@@ -137,14 +137,13 @@ function candidate(job: JobRecord, company: Company, relevant: boolean): boolean
   return job.seenCount === 1;
 }
 
-export function buildState(db: Database): StateView {
-  const profile = db.profile;
+function rolesFor(db: Database, profile: Profile): RoleView[] {
+  const owned = new Set(companiesFor(db, profile.id).map((company) => company.id));
   const roles: RoleView[] = [];
-  if (profile) {
-    for (const job of db.jobs) {
-      if (!job.active) continue;
-      const company = db.companies.find((item) => item.id === job.companyId);
-      if (!company) continue;
+  for (const job of db.jobs) {
+    if (!job.active || !owned.has(job.companyId)) continue;
+    const company = db.companies.find((item) => item.id === job.companyId);
+    if (!company) continue;
       const match = matchJob(
         {
           title: job.title,
@@ -170,10 +169,14 @@ export function buildState(db: Database): StateView {
         freshness,
         inDigest: false,
       });
-    }
   }
-
   roles.sort((a, b) => b.match.score - a.match.score || a.title.localeCompare(b.title));
+  return roles;
+}
+
+export function buildState(db: Database): StateView {
+  const profile = activeProfile(db);
+  const roles = profile ? rolesFor(db, profile) : [];
   const digestRoles = roles.filter((role) => {
     const company = db.companies.find((item) => item.id === role.companyId);
     const job = db.jobs.find((item) => item.id === role.id);
@@ -209,12 +212,13 @@ export function buildState(db: Database): StateView {
       })
     : null;
 
-  const prior = db.digests[0];
+  const prior = profile ? digestsFor(db, profile.id)[0] : undefined;
   const same = prior && prior.jobIds.join("|") === capped.map((role) => role.id).join("|");
 
   return {
     profile,
-    companies: db.companies
+    profiles: db.profiles.map((item) => ({ id: item.id, name: item.name, domain: item.domain })),
+    companies: (profile ? companiesFor(db, profile.id) : [])
       .map((company) => ({
         id: company.id,
         name: company.name,
@@ -243,7 +247,7 @@ export function buildState(db: Database): StateView {
           createdAt: new Date().toISOString(),
         }
       : null,
-    smtpConfigured: smtpConfigured(),
+    mailConfigured: mailConfigured(),
   };
 }
 
@@ -251,14 +255,22 @@ export function getState(): StateView {
   return buildState(readDb());
 }
 
-export async function resetDesk(): Promise<StateView> {
+export async function removeProfile(id: string): Promise<StateView> {
   await updateDb((db) => {
-    db.profile = null;
-    db.companies = [];
-    db.jobs = [];
-    db.digests = [];
-    db.dailyScannedOn = null;
-    db.dailyMailedOn = null;
+    const companyIds = new Set(db.companies.filter((company) => company.profileId === id).map((company) => company.id));
+    db.profiles = db.profiles.filter((profile) => profile.id !== id);
+    db.companies = db.companies.filter((company) => company.profileId !== id);
+    db.jobs = db.jobs.filter((job) => !companyIds.has(job.companyId));
+    db.digests = db.digests.filter((digest) => digest.profileId !== id);
+    if (db.activeProfileId === id) db.activeProfileId = db.profiles[0]?.id || null;
+  });
+  return getState();
+}
+
+export async function activateProfile(id: string): Promise<StateView> {
+  await updateDb((db) => {
+    if (!db.profiles.some((profile) => profile.id === id)) throw new FetchError("That profile is not on the desk.");
+    db.activeProfileId = id;
   });
   return getState();
 }
@@ -272,6 +284,8 @@ function cleanEmail(value: string | undefined): string {
 }
 
 export async function saveProfile(input: {
+  id?: string;
+  name?: string;
   domain?: string;
   preferredRoles?: string;
   levels?: string[];
@@ -284,18 +298,29 @@ export async function saveProfile(input: {
   const levels = (input.levels || []).filter((level): level is Level => (LEVELS as readonly string[]).includes(level));
   if (levels.length === 0) throw new FetchError("Choose at least one kind of work.");
   const email = cleanEmail(input.email);
+  const name = (input.name || domain).trim().slice(0, 80) || domain;
   const now = new Date().toISOString();
   await updateDb((db) => {
+    const existing = input.id ? db.profiles.find((profile) => profile.id === input.id) : undefined;
+    if (input.id && !existing) throw new FetchError("That profile is not on the desk.");
     const profile: Profile = {
+      id: existing?.id || crypto.randomUUID(),
+      name,
       domain,
       preferredRoles: (input.preferredRoles || "").trim().slice(0, 240),
       levels,
       keywords: (input.keywords || "").trim().slice(0, 240),
       email,
-      createdAt: db.profile?.createdAt || now,
+      createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
-    db.profile = profile;
+    if (existing) {
+      const index = db.profiles.findIndex((item) => item.id === existing.id);
+      db.profiles[index] = profile;
+    } else {
+      db.profiles.push(profile);
+    }
+    db.activeProfileId = profile.id;
   });
   return getState();
 }
@@ -304,13 +329,15 @@ export async function addCompany(rawUrl: string): Promise<StateView> {
   const website = normalizeWebsite(rawUrl);
   const host = hostOf(website);
   const existing = readDb();
-  if (!existing.profile) throw new FetchError("Create your search before adding a company.");
-  if (existing.companies.some((company) => hostOf(company.website) === host)) {
+  const profile = activeProfile(existing);
+  if (!profile) throw new FetchError("Create your search before adding a company.");
+  if (companiesFor(existing, profile.id).some((company) => hostOf(company.website) === host)) {
     throw new FetchError("You're already watching that company.");
   }
 
   const draft: Company = {
     id: crypto.randomUUID(),
+    profileId: profile.id,
     website,
     name: host.split(".")[0] || "Company",
     blurb: "",
@@ -325,7 +352,10 @@ export async function addCompany(rawUrl: string): Promise<StateView> {
   };
   const refreshed = await refreshCompany(draft);
   await updateDb((db) => {
-    if (db.companies.some((company) => hostOf(company.website) === hostOf(refreshed.company.website))) return;
+    const owner = activeProfile(db);
+    if (!owner) return;
+    refreshed.company.profileId = owner.id;
+    if (companiesFor(db, owner.id).some((company) => hostOf(company.website) === hostOf(refreshed.company.website))) return;
     db.companies.push(refreshed.company);
     if (!refreshed.failed) applyJobs(db, refreshed.company, refreshed.jobs);
   });
@@ -393,7 +423,7 @@ export async function emailApplicableRoles(appUrl: string): Promise<{
     })),
   });
   const result = await sendDigestEmail({ to: state.profile.email, ...mail });
-  if (result.sent) await rememberMail(mail, roles.map((role) => role.id), "baseline");
+  if (result.sent && state.profile) await rememberMail(state.profile.id, mail, roles.map((role) => role.id), "baseline");
   return { ...result, subject: mail.subject, text: mail.text, state: getState() };
 }
 
@@ -406,36 +436,41 @@ export async function runDailyCheck(appUrl: string, today: string): Promise<void
       next.dailyScannedOn = today;
     });
   }
-  const state = getState();
-  const fresh = state.roles.filter((role) => role.freshness === "new" && role.match.relevant);
-  if (!state.profile?.email || fresh.length === 0 || !smtpConfigured()) {
-    if (fresh.length === 0) {
-      await updateDb((next) => {
-        next.dailyMailedOn = today;
-      });
+  const scanned = readDb();
+  let blocked = false;
+  for (const profile of scanned.profiles) {
+    const view = rolesFor(scanned, profile);
+    const fresh = view.filter((role) => role.freshness === "new" && role.match.relevant);
+    if (!profile.email || fresh.length === 0 || !mailConfigured()) {
+      if (fresh.length > 0 && profile.email && !mailConfigured()) blocked = true;
+      continue;
     }
-    return;
+    const mail = buildRoleMail({
+      domain: profile.domain,
+      kind: "new",
+      appUrl,
+      roles: fresh.map((role) => ({
+        title: role.title,
+        companyName: role.companyName,
+        location: role.location,
+        detectedLevel: role.match.detectedLevel,
+      })),
+    });
+    const result = await sendDigestEmail({ to: profile.email, ...mail });
+    if (!result.sent) {
+      blocked = true;
+      continue;
+    }
+    await rememberMail(profile.id, mail, fresh.map((role) => role.id), "new");
   }
-  const mail = buildRoleMail({
-    domain: state.profile.domain,
-    kind: "new",
-    appUrl,
-    roles: fresh.map((role) => ({
-      title: role.title,
-      companyName: role.companyName,
-      location: role.location,
-      detectedLevel: role.match.detectedLevel,
-    })),
-  });
-  const result = await sendDigestEmail({ to: state.profile.email, ...mail });
-  if (!result.sent) return;
-  await rememberMail(mail, fresh.map((role) => role.id), "new");
+  if (blocked) return;
   await updateDb((next) => {
     next.dailyMailedOn = today;
   });
 }
 
 async function rememberMail(
+  profileId: string,
   mail: { subject: string; text: string; html: string },
   jobIds: string[],
   kind: DigestRecord["kind"]
@@ -443,6 +478,7 @@ async function rememberMail(
   await updateDb((db) => {
     db.digests.unshift({
       id: crypto.randomUUID(),
+      profileId,
       createdAt: new Date().toISOString(),
       sentAt: new Date().toISOString(),
       subject: mail.subject,

@@ -3,6 +3,8 @@ export const LEVELS = ["internship", "full-time", "freelance", "contract", "any"
 export type Level = (typeof LEVELS)[number];
 
 export type Profile = {
+  id: string;
+  name: string;
   domain: string;
   preferredRoles: string;
   levels: Level[];
@@ -10,6 +12,12 @@ export type Profile = {
   email: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProfileSummary = {
+  id: string;
+  name: string;
+  domain: string;
 };
 
 export type JobSource = {
@@ -30,6 +38,7 @@ export type JobSource = {
 
 export type Company = {
   id: string;
+  profileId: string;
   website: string;
   name: string;
   blurb: string;
@@ -78,6 +87,7 @@ export type MatchResult = {
 
 export type DigestRecord = {
   id: string;
+  profileId: string;
   createdAt: string;
   sentAt: string | null;
   subject: string;
@@ -88,7 +98,8 @@ export type DigestRecord = {
 };
 
 export type Database = {
-  profile: Profile | null;
+  profiles: Profile[];
+  activeProfileId: string | null;
   companies: Company[];
   jobs: JobRecord[];
   digests: DigestRecord[];
@@ -129,6 +140,7 @@ export type CompanyView = {
 
 export type StateView = {
   profile: Profile | null;
+  profiles: ProfileSummary[];
   companies: CompanyView[];
   roles: RoleView[];
   digest: {
@@ -140,5 +152,5 @@ export type StateView = {
     sentAt: string | null;
     createdAt: string;
   } | null;
-  smtpConfigured: boolean;
+  mailConfigured: boolean;
 };
