@@ -8,5 +8,5 @@ export const runtime = "nodejs";
 export default async function Page() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  return <RadarApp />;
+  return <RadarApp accountEmail={session.user.email} />;
 }

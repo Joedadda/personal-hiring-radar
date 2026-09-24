@@ -179,13 +179,21 @@ function Mast({
   );
 }
 
-function Onboarding({ onDone, onCancel }: { onDone: (state: StateView) => void; onCancel?: () => void }) {
+function Onboarding({
+  accountEmail,
+  onDone,
+  onCancel,
+}: {
+  accountEmail: string;
+  onDone: (state: StateView) => void;
+  onCancel?: () => void;
+}) {
   const [step, setStep] = useState(0);
   const [domain, setDomain] = useState("");
   const [roles, setRoles] = useState("");
   const [levels, setLevels] = useState<Level[]>([]);
   const [keywords, setKeywords] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(accountEmail);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const titles = useMemo(() => previewTitles(domain), [domain]);
@@ -750,7 +758,7 @@ function ProfileTray({
   );
 }
 
-export function RadarApp() {
+export function RadarApp({ accountEmail }: { accountEmail: string }) {
   const [state, setState] = useState<StateView | null>(null);
   const [booting, setBooting] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -776,6 +784,7 @@ export function RadarApp() {
   if (creating) {
     return (
       <Onboarding
+        accountEmail={accountEmail}
         onDone={(next) => {
           setCreating(false);
           setState(next);
@@ -784,6 +793,6 @@ export function RadarApp() {
       />
     );
   }
-  if (!state.profile) return <Onboarding onDone={setState} />;
+  if (!state.profile) return <Onboarding accountEmail={accountEmail} onDone={setState} />;
   return <Desk state={state} setState={setState} onAdd={() => setCreating(true)} />;
 }
